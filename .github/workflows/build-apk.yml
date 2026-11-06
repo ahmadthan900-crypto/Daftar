@@ -1,5 +1,5 @@
 
-name: Build DAFTAR Android APK
+name: Build DAFTAR APK
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download project
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -26,56 +26,55 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Prepare project
+      - name: Extract DAFTAR ZIP
         run: |
-          if [ -f pubspec.yaml ]; then
-            echo "Flutter project detected"
-          elif [ -f package.json ]; then
-            echo "Web project detected"
-          else
-            echo "ERROR: No supported project found"
+          mkdir extracted
+          unzip -q DAFTAR-project.zip -d extracted
+
+          INDEX=$(find extracted -type f -name index.html | head -n 1)
+
+          if [ -z "$INDEX" ]; then
+            echo "ERROR: index.html not found in ZIP"
             exit 1
           fi
 
-      - name: Build Flutter APK
-        if: hashFiles('pubspec.yaml') != ''
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
+          ROOT=$(dirname "$INDEX")
+          mkdir www
 
-      - name: Flutter dependencies
-        if: hashFiles('pubspec.yaml') != ''
-        run: flutter pub get
+          cp "$ROOT/index.html" www/
 
-      - name: Flutter build
-        if: hashFiles('pubspec.yaml') != ''
-        run: flutter build apk --release
+          for item in css js manifest.json service-worker.js; do
+            if [ -e "$ROOT/$item" ]; then
+              cp -r "$ROOT/$item" www/
+            fi
+          done
 
-      - name: Install web dependencies
-        if: hashFiles('package.json') != ''
-        run: npm install
-
-      - name: Check Android project
-        if: hashFiles('package.json') != ''
+      - name: Create Capacitor project
         run: |
-          if [ ! -d android ]; then
-            echo "ERROR: Android folder missing. Capacitor Android project must be created first."
-            exit 1
-          fi
+          npm init -y
+          npm install @capacitor/core @capacitor/android
+          npm install --save-dev @capacitor/cli
+
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.daftar.app",
+            "appName": "DAFTAR",
+            "webDir": "www"
+          }
+          EOF
+
+          npx cap add android
           npx cap sync android
 
-      - name: Build Web APK
-        if: hashFiles('package.json') != ''
+      - name: Build Android APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: DAFTAR-APK
-          path: |
-            build/app/outputs/flutter-apk/app-release.apk
-            android/app/build/outputs/apk/release/*.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
