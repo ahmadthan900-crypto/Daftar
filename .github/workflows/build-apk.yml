@@ -1,0 +1,81 @@
+
+name: Build DAFTAR Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download project
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Prepare project
+        run: |
+          if [ -f pubspec.yaml ]; then
+            echo "Flutter project detected"
+          elif [ -f package.json ]; then
+            echo "Web project detected"
+          else
+            echo "ERROR: No supported project found"
+            exit 1
+          fi
+
+      - name: Build Flutter APK
+        if: hashFiles('pubspec.yaml') != ''
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter dependencies
+        if: hashFiles('pubspec.yaml') != ''
+        run: flutter pub get
+
+      - name: Flutter build
+        if: hashFiles('pubspec.yaml') != ''
+        run: flutter build apk --release
+
+      - name: Install web dependencies
+        if: hashFiles('package.json') != ''
+        run: npm install
+
+      - name: Check Android project
+        if: hashFiles('package.json') != ''
+        run: |
+          if [ ! -d android ]; then
+            echo "ERROR: Android folder missing. Capacitor Android project must be created first."
+            exit 1
+          fi
+          npx cap sync android
+
+      - name: Build Web APK
+        if: hashFiles('package.json') != ''
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DAFTAR-APK
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
